@@ -39,6 +39,22 @@ jobs:
       - name: Coverage
         run: make coverage
 
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: |
+            coverage.out
+            coverage.html
+          retention-days: 7
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage.out
+          fail_ci_if_error: false
+
   smoke:
     # End-to-end run of the built binary against a local mock LLM server,
     # so a real process (not just in-process tests) is exercised.

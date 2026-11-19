@@ -1,5 +1,8 @@
 # kaclaig
 
+[![CI](https://github.com/kaclaig/kaclaig/actions/workflows/ci.yml/badge.svg)](https://github.com/kaclaig/kaclaig/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/kaclaig/kaclaig/branch/main/graph/badge.svg)](https://codecov.io/gh/kaclaig/kaclaig)
+
 Keep A Changelog, AI Generated. A tool to automatically generate
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)-compliant
 `CHANGELOG.md` entries from git history using any OpenAI-compatible LLM API.
