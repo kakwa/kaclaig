@@ -70,6 +70,7 @@ prerelease labels (e.g. `1.2.3-rc.1`) are preserved when bumping.
 | `--model` / `--base-url` / `--api-key` | Override LLM connection settings |
 | `--dir` | Git repository directory (default: current directory) |
 | `--no-write` | Print the entry instead of updating the file |
+| `--no-semver` | Disable the semver conformance check (default: on) |
 | `--max-tries` | Maximum LLM attempts (default: 3) |
 | `--timeout` | Per-request LLM timeout (default: 5m) |
 | `-v` | Verbose output |
@@ -78,6 +79,35 @@ The generated entries follow the [Keep a Changelog 1.1.0](https://keepachangelog
 specification: the standard categories (Added, Changed, Deprecated, Removed,
 Fixed, Security), only the sections that apply, and concise user-facing
 bullet points in the imperative mood.
+
+### Semver conformance check
+
+After validation, `kaclaig` checks that the version bump is consistent with
+the change, per
+[Semantic Versioning](https://semver.org/):
+
+- **Over-zealous** (warning): a major bump with no breaking change. The
+  entry is still written; a warning is printed on stderr.
+- **Under-zealous** (error): breaking changes shipped on a minor or patch
+  bump. `kaclaig` exits with an error and nothing is written.
+
+Breaking changes are detected structurally first — a `### Removed` section
+or an inline `BREAKING` / `**BREAKING**` / `BREAKING CHANGE:` marker in any
+bullet — and the LLM is only consulted for entries with no structural
+signal. When a check fails, a second LLM call produces a short explanation
+pointing at the offending bullet(s) and, when the diff stat names files, the
+files involved:
+
+```
+error: semver: breaking changes are present but the version was only bumped
+from v1.0.0 to 1.0.1 (minor/patch); a major version bump is required per
+semver
+    The entry removes the --legacy flag (see "Removed" section), which is a
+    breaking change. Implicated file: cmd/tool/main.go.
+```
+
+Disable the check with `--no-semver`. It never runs for `[Unreleased]`
+updates, since no bump is being made.
 
 ### LLM configuration
 
@@ -159,14 +189,21 @@ Key types and functions:
 ## Development
 
 ```bash
-make test   # run all tests
-make vet    # go vet
-make fmt    # gofmt
-make build  # build the CLI
+make all        # fmt-check + vet + build
+make test       # run all tests
+make test-race  # tests with the race detector
+make coverage   # tests with a coverage summary (coverage.out)
+make vet        # go vet
+make fmt        # gofmt
+make build      # build the CLI
 ```
 
-The tests require `git` on `PATH` and run unattended (they create temporary
-repositories with backdated tags).
+The tests require `git` on `PATH` and run unattended: they create temporary
+repositories with backdated tags and use local `httptest` servers as mock
+LLMs, so no API key or network access is needed. Continuous integration runs
+the same suite in GitHub Actions
+([`.github/workflows/ci.yml`](.github/workflows/ci.yml)), including an
+end-to-end smoke test of the built binary against a local mock LLM.
 
 ## License
 
