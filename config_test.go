@@ -152,6 +152,58 @@ func TestLoadLLMSettingsBadJSON(t *testing.T) {
 	}
 }
 
+func TestParseLLMConfigBlob(t *testing.T) {
+	cfg, err := ParseLLMConfigBlob([]byte(sampleConfig))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, ok := resolveSettings(cfg)
+	if !ok {
+		t.Fatal("expected the parsed blob to resolve to settings")
+	}
+	if s.Model != "qwen3.8_27B" || s.BaseURL != "https://ai.example.com/v1" || s.APIKey != "asd" {
+		t.Errorf("resolveSettings = %+v, want the sample settings", s)
+	}
+
+	if _, err := ParseLLMConfigBlob([]byte("{not json")); err == nil {
+		t.Error("expected error for invalid JSON")
+	}
+
+	// A blob without a usable model still parses: it is only malformed
+	// JSON that is an error.
+	if _, err := ParseLLMConfigBlob([]byte(`{}`)); err != nil {
+		t.Errorf("expected {} to parse, got: %v", err)
+	}
+}
+
+func TestLLMSettingsFromBlob(t *testing.T) {
+	s, err := LLMSettingsFromBlob([]byte(sampleConfig), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := LLMSettings{
+		BaseURL: "https://ai.example.com/v1",
+		APIKey:  "asd",
+		Model:   "qwen3.8_27B",
+	}
+	if s != want {
+		t.Errorf("LLMSettingsFromBlob = %+v, want %+v", s, want)
+	}
+
+	// A blob that does not resolve to a usable model is not an error.
+	s, err = LLMSettingsFromBlob([]byte(`{}`), "inline")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s != (LLMSettings{}) {
+		t.Errorf("expected empty settings for an unusable blob, got %+v", s)
+	}
+
+	if _, err := LLMSettingsFromBlob([]byte("{not json"), "inline"); err == nil {
+		t.Error("expected error for invalid JSON")
+	}
+}
+
 func TestResolveSettingsNoModel(t *testing.T) {
 	cfg := &ConfigFile{}
 	if _, ok := resolveSettings(cfg); ok {

@@ -329,19 +329,15 @@ func TestGeneratorRetriesOnInvalid(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	// The semver check is disabled so the call count only reflects the
-	// generation retries this test is about.
-	disabled := false
 	gen := &Generator{
-		Dir:        dir,
-		OldTag:     "v1.0.0",
-		NewTag:     "1.1.1",
-		KeepFile:   cl,
-		MaxTries:   3,
-		Timeout:    time.Second * 5,
-		BaseURL:    srv.URL + "/v1",
-		APIKey:     "test",
-		WarnSemver: &disabled,
+		Dir:      dir,
+		OldTag:   "v1.0.0",
+		NewTag:   "1.1.1",
+		KeepFile: cl,
+		MaxTries: 3,
+		Timeout:  time.Second * 5,
+		BaseURL:  srv.URL + "/v1",
+		APIKey:   "test",
 	}
 	out, err := gen.Run(context.Background())
 	if err != nil {

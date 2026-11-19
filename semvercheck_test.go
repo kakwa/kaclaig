@@ -187,15 +187,17 @@ func TestRun_SemverError_Fails(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
+	enabled := true
 	gen := &Generator{
-		Dir:      dir,
-		OldTag:   "v1.0.0",
-		NewTag:   "1.1.1",
-		KeepFile: cl,
-		MaxTries: 2,
-		Timeout:  5e9,
-		BaseURL:  srv.URL + "/v1",
-		APIKey:   "test",
+		Dir:               dir,
+		OldTag:            "v1.0.0",
+		NewTag:            "1.1.1",
+		KeepFile:          cl,
+		MaxTries:          2,
+		Timeout:           5e9,
+		BaseURL:           srv.URL + "/v1",
+		APIKey:            "test",
+		SemverConformance: &enabled,
 	}
 	if _, err := gen.Run(context.Background()); err == nil {
 		t.Fatal("expected a semver error for a breaking change on a patch bump")
@@ -217,15 +219,17 @@ func TestRun_SemverWarning_Succeeds(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
+	enabled := true
 	gen := &Generator{
-		Dir:      dir,
-		OldTag:   "v1.1.0",
-		NewTag:   "2.0.0",
-		KeepFile: cl,
-		MaxTries: 2,
-		Timeout:  5e9,
-		BaseURL:  srv.URL + "/v1",
-		APIKey:   "test",
+		Dir:               dir,
+		OldTag:            "v1.1.0",
+		NewTag:            "2.0.0",
+		KeepFile:          cl,
+		MaxTries:          2,
+		Timeout:           5e9,
+		BaseURL:           srv.URL + "/v1",
+		APIKey:            "test",
+		SemverConformance: &enabled,
 	}
 	out, err := gen.Run(context.Background())
 	if err != nil {
@@ -243,24 +247,23 @@ func TestRun_SemverDisabled(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Breaking entry on a patch bump, but the check is disabled -> success.
+	// Breaking entry on a patch bump, but the check is off by default ->
+	// success.
 	entry := "## [1.1.1] - 2026-01-15\n\n### Removed\n\n- legacy flag --old\n"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		replyJSON(t, w, entry)
 	}))
 	t.Cleanup(srv.Close)
 
-	disabled := false
 	gen := &Generator{
-		Dir:        dir,
-		OldTag:     "v1.0.0",
-		NewTag:     "1.1.1",
-		KeepFile:   cl,
-		MaxTries:   2,
-		Timeout:    5e9,
-		BaseURL:    srv.URL + "/v1",
-		APIKey:     "test",
-		WarnSemver: &disabled,
+		Dir:      dir,
+		OldTag:   "v1.0.0",
+		NewTag:   "1.1.1",
+		KeepFile: cl,
+		MaxTries: 2,
+		Timeout:  5e9,
+		BaseURL:  srv.URL + "/v1",
+		APIKey:   "test",
 	}
 	if _, err := gen.Run(context.Background()); err != nil {
 		t.Fatalf("expected success when the semver check is disabled, got: %v", err)

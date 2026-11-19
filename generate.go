@@ -35,16 +35,18 @@ type Generator struct {
 	KeepFile string // path to the changelog file; "" to auto-detect
 	NoWrite  bool
 	Verbose  bool
-	// WarnSemver enables the semver conformance check (on by default).
-	// Under-zealous bumps are errors; over-zealous bumps are warnings.
-	WarnSemver *bool
-	Timeout    time.Duration
-	BaseURL    string // optional LLM base URL override
-	APIKey     string // optional LLM API key override
-	Config     string // optional explicit path to an LLM config file
-	Existing   string // existing changelog content
-	Git        *GitData
-	llm        *LLM
+	// SemverConformance enables the semver conformance check (off by
+	// default). Under-zealous bumps are errors; over-zealous bumps are
+	// warnings.
+	SemverConformance *bool
+	Timeout           time.Duration
+	BaseURL           string // optional LLM base URL override
+	APIKey            string // optional LLM API key override
+	Config            string // optional explicit path to an LLM config file
+	ConfigBlob        string // optional inline LLM config JSON (same format as Config); overrides Config
+	Existing          string // existing changelog content
+	Git               *GitData
+	llm               *LLM
 
 	prevTag string // latest tag at collect time (the base of a derived bump)
 }
@@ -58,9 +60,9 @@ func (g *Generator) Run(ctx context.Context) (string, error) {
 	if g.MaxTries <= 0 {
 		g.MaxTries = 3
 	}
-	if g.WarnSemver == nil {
-		b := true
-		g.WarnSemver = &b
+	if g.SemverConformance == nil {
+		b := false
+		g.SemverConformance = &b
 	}
 	if g.Bump == "" {
 		g.Bump = BumpUnreleased
@@ -82,21 +84,21 @@ func (g *Generator) Run(ctx context.Context) (string, error) {
 		APIKey:  g.APIKey,
 	}
 	if cfg.BaseURL == "" || cfg.APIKey == "" || cfg.Model == "" {
-		fileSettings, err := LoadLLMSettings(g.Config)
+		settings, err := g.llmSettings()
 		if err != nil {
 			return "", err
 		}
 		if cfg.BaseURL == "" {
-			cfg.BaseURL = fileSettings.BaseURL
+			cfg.BaseURL = settings.BaseURL
 		}
 		if cfg.APIKey == "" {
-			cfg.APIKey = fileSettings.APIKey
+			cfg.APIKey = settings.APIKey
 		}
 		if cfg.Model == "" {
-			cfg.Model = fileSettings.Model
+			cfg.Model = settings.Model
 		}
 		if g.Verbose && (cfg.BaseURL != "" || cfg.Model != "") {
-			g.log("using LLM settings from config file")
+			g.log("using LLM settings from config")
 		}
 	}
 	llm, err := NewLLM(cfg)
@@ -127,7 +129,7 @@ func (g *Generator) Run(ctx context.Context) (string, error) {
 		entry := extractEntry(reply, g.NewTag)
 
 		if ok, reason := ValidateKeepAChangelog(entry, g.NewTag); ok {
-			if *g.WarnSemver {
+			if *g.SemverConformance {
 				if res, err := g.checkSemver(ctx, entry); err != nil {
 					g.log("semver check: %v", err)
 				} else if res.Severity != SemverOK {
@@ -160,6 +162,23 @@ func (g *Generator) Run(ctx context.Context) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("LLM produced no valid changelog entry after %d attempts: %w", g.MaxTries, lastErr)
+}
+
+// llmSettings resolves LLM settings from the configured sources. The inline
+// config blob (ConfigBlob) takes precedence over the config file (Config);
+// when the blob does not resolve to usable settings, the file is still
+// consulted as a fallback.
+func (g *Generator) llmSettings() (LLMSettings, error) {
+	if g.ConfigBlob != "" {
+		s, err := LLMSettingsFromBlob([]byte(g.ConfigBlob), "-C")
+		if err != nil {
+			return LLMSettings{}, err
+		}
+		if s.usable() {
+			return s, nil
+		}
+	}
+	return LoadLLMSettings(g.Config)
 }
 
 // collect gathers the existing changelog and git data.

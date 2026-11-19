@@ -148,6 +148,14 @@ The config file (and the `-C` blob) uses the opencode.json provider format:
 
 The `model` field selects a provider and model as `<provider>/<model>`.
 
+To pass the config inline instead of in a file, quote the same JSON for `-C`:
+
+```bash
+kaclaig -C '{"providers":{"local":{"settings":{"baseURL":"https://ai.example.com/v1","apiKey":"secret"}}},"model":"local/qwen3.8-27b"}'
+```
+
+`-C` overrides `-c` when both are given.
+
 ## Library usage
 
 `kaclaig` is also importable as a library:
@@ -168,7 +176,7 @@ func main() {
 		Dir:     ".",
 		MaxTries: 3,
 		Timeout:  5 * time.Minute,
-		// NewTag / Bump, BaseURL / APIKey / Model / Config, NoWrite, ...
+		// NewTag / Bump, Model / Config / ConfigBlob, NoWrite, ...
 	}
 	entry, err := gen.Run(context.Background())
 	if err != nil {

@@ -74,9 +74,20 @@ func LoadLLMSettings(explicit string) (LLMSettings, error) {
 	if err != nil {
 		return LLMSettings{}, fmt.Errorf("reading config %s: %w", path, err)
 	}
+	return LLMSettingsFromBlob(data, path)
+}
+
+// LLMSettingsFromBlob parses an opencode-style config JSON blob (the same
+// format as a config file) and resolves LLM settings from it. If the blob
+// does not resolve to a usable model, it returns LLMSettings{} (all empty)
+// and no error. When label is non-empty it is included in error messages.
+func LLMSettingsFromBlob(data []byte, label string) (LLMSettings, error) {
+	if label == "" {
+		label = "inline config"
+	}
 	var cfg ConfigFile
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return LLMSettings{}, fmt.Errorf("parsing config %s: %w", path, err)
+		return LLMSettings{}, fmt.Errorf("parsing config %s: %w", label, err)
 	}
 
 	settings, ok := resolveSettings(&cfg)
@@ -84,6 +95,18 @@ func LoadLLMSettings(explicit string) (LLMSettings, error) {
 		return LLMSettings{}, nil
 	}
 	return settings, nil
+}
+
+// ParseLLMConfigBlob parses an opencode-style config JSON blob (the same
+// format as a config file) into a ConfigFile, validating that it is well
+// formed. It does not resolve settings, so a blob without a usable model is
+// accepted.
+func ParseLLMConfigBlob(data []byte) (*ConfigFile, error) {
+	var cfg ConfigFile
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("parsing config: %w", err)
+	}
+	return &cfg, nil
 }
 
 // findConfigFile locates the config file to use.
