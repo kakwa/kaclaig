@@ -1,7 +1,7 @@
 # kaclaig
 
-[![CI](https://github.com/kaclaig/kaclaig/actions/workflows/ci.yml/badge.svg)](https://github.com/kaclaig/kaclaig/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/kaclaig/kaclaig/branch/main/graph/badge.svg)](https://codecov.io/gh/kaclaig/kaclaig)
+[![CI](https://github.com/kakwa/kaclaig/actions/workflows/ci.yml/badge.svg)](https://github.com/kaclaig/kaclaig/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/kakwa/kaclaig/branch/main/graph/badge.svg)](https://codecov.io/gh/kaclaig/kaclaig)
 
 Keep A Changelog, AI Generated. A tool to automatically generate
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)-compliant
@@ -70,12 +70,12 @@ prerelease labels (e.g. `1.2.3-rc.1`) are preserved when bumping.
 | `--from` | Previous tag to diff against (default: latest parent tag) |
 | `--changelog` | Path to the changelog file (default: auto-detect) |
 | `-c` | Path to an LLM config file (opencode.json format) |
-| `--model` / `--base-url` / `--api-key` | Override LLM connection settings |
+| `-C` | Inline LLM config JSON blob, same format as the `-c` file; overrides it |
+| `--model` | LLM model name, overriding the config and environment |
 | `--dir` | Git repository directory (default: current directory) |
 | `--no-write` | Print the entry instead of updating the file |
-| `--no-semver` | Disable the semver conformance check (default: on) |
+| `--semver-conformance-enabled` | Enable the semver conformance check (default: off) |
 | `--max-tries` | Maximum LLM attempts (default: 3) |
-| `--timeout` | Per-request LLM timeout (default: 5m) |
 | `-v` | Verbose output |
 
 The generated entries follow the [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/)
@@ -85,8 +85,9 @@ bullet points in the imperative mood.
 
 ### Semver conformance check
 
-After validation, `kaclaig` checks that the version bump is consistent with
-the change, per
+The semver conformance check is **off by default**; enable it with
+`--semver-conformance-enabled`. When enabled, `kaclaig` checks that the
+version bump is consistent with the change, per
 [Semantic Versioning](https://semver.org/):
 
 - **Over-zealous** (warning): a major bump with no breaking change. The
@@ -109,20 +110,20 @@ semver
     breaking change. Implicated file: cmd/tool/main.go.
 ```
 
-Disable the check with `--no-semver`. It never runs for `[Unreleased]`
-updates, since no bump is being made.
+It never runs for `[Unreleased]` updates, since no bump is being made.
 
 ### LLM configuration
 
 Connection settings are resolved in priority order:
 
-1. `--model`, `--base-url`, `--api-key` flags
-2. the `-c <config file>` flag
-3. `$HOME/.kaclaig-llm/kaclaig.json`
-4. `$HOME/.config/opencode/opencode.json`
-5. environment variables (`LLM_MODEL`, `LLM_BASE_URL`, `LLM_API_KEY`, `OPENAI_*`)
+1. the `--model` flag
+2. the `-C '<json blob>'` flag (same format as the config file, inline)
+3. the `-c <config file>` flag
+4. `$HOME/.kaclaig-llm/kaclaig.json`
+5. `$HOME/.config/opencode/opencode.json`
+6. environment variables (`LLM_MODEL`, `LLM_BASE_URL`, `LLM_API_KEY`, `OPENAI_*`)
 
-The config file uses the opencode.json provider format:
+The config file (and the `-C` blob) uses the opencode.json provider format:
 
 ```json
 {
