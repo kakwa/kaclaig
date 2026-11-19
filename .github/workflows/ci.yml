@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: kaclaig
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: kaclaig/go.mod
+          cache-dependency-path: kaclaig/go.sum
+
+      - name: Format check
+        run: make fmt-check
+
+      - name: Vet
+        run: make vet
+
+      - name: Build
+        run: make build
+
+      - name: Test (mock LLM)
+        # The unit tests spin up their own httptest LLM servers, so no real
+        # API key or network access is needed.
+        run: make test
+
+      - name: Test (race detector)
+        run: make test-race
+
+      - name: Coverage
+        run: make coverage
+
+  smoke:
+    # End-to-end run of the built binary against a local mock LLM server,
+    # so a real process (not just in-process tests) is exercised.
+    name: smoke (mock LLM)
+    runs-on: ubuntu-latest
+    needs: test
+    defaults:
+      run:
+        working-directory: kaclaig
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: kaclaig/go.mod
+          cache-dependency-path: kaclaig/go.sum
+
+      - name: Build
+        run: make build
+
+      - name: Run against mock LLM
+        run: |
+          # Mock LLM: an OpenAI-compatible endpoint that always returns a
+          # valid Keep a Changelog entry.
+          cat > /tmp/mock-llm.py <<'EOF'
+          import json, sys
+          from http.server import BaseHTTPRequestHandler, HTTPServer
+
+          ENTRY = ("## [1.1.1] - 2026-01-15\n\n### Added\n\n- A new feature\n\n"
+                   "### Fixed\n\n- A bug\n")
+
+          class H(BaseHTTPRequestHandler):
+              def do_POST(self):
+                  body = json.dumps({"choices": [{"message": {"role": "assistant", "content": ENTRY}}]}).encode()
+                  self.send_response(200)
+                  self.send_header("Content-Type", "application/json")
+                  self.end_headers()
+                  self.wfile.write(body)
+
+              def log_message(self, *a):
+                  pass
+
+          HTTPServer(("127.0.0.1", 8931), H).serve_forever()
+          EOF
+          python3 /tmp/mock-llm.py &
+          MOCK_PID=$!
+          trap 'kill $MOCK_PID 2>/dev/null || true' EXIT
+          for _ in $(seq 1 50); do curl -s -o /dev/null http://127.0.0.1:8931/ && break; sleep 0.1; done
+
+          # A scratch git repo to release in.
+          rm -rf /tmp/kaclaig-smoke && mkdir -p /tmp/kaclaig-smoke && cd /tmp/kaclaig-smoke
+          git init -q .
+          git config user.email ci@example.com
+          git config user.name ci
+          printf '# Changelog\n\n## [Unreleased]\n' > CHANGELOG.md
+          git add . && git commit -qm "init" && git tag v1.1.0
+          echo "change" > feature.txt && git add . && git commit -qm "feat: add a feature"
+
+          # Generate the entry against the mock LLM (no file write).
+          bin/kaclaig -tag 1.1.1 -from v1.1.0 -p \
+            --base-url http://127.0.0.1:8931/v1 --api-key test \
+            -model mock -no-write | tee /tmp/entry.md
+          grep -q "## \[1.1.1\]" /tmp/entry.md
+        working-directory: kaclaig
