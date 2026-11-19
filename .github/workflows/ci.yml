@@ -76,22 +76,32 @@ jobs:
 
       - name: Run against mock LLM
         run: |
+          set -euo pipefail
+
           # Mock LLM: an OpenAI-compatible endpoint that always returns a
-          # valid Keep a Changelog entry.
+          # valid Keep a Changelog entry. GET is answered too so the readiness
+          # probe below waits for a real 200 instead of a 501.
           cat > /tmp/mock-llm.py <<'EOF'
-          import json, sys
+          import json
           from http.server import BaseHTTPRequestHandler, HTTPServer
 
           ENTRY = ("## [1.1.1] - 2026-01-15\n\n### Added\n\n- A new feature\n\n"
                    "### Fixed\n\n- A bug\n")
 
           class H(BaseHTTPRequestHandler):
-              def do_POST(self):
-                  body = json.dumps({"choices": [{"message": {"role": "assistant", "content": ENTRY}}]}).encode()
+              def reply(self, payload):
+                  body = json.dumps(payload).encode()
                   self.send_response(200)
                   self.send_header("Content-Type", "application/json")
+                  self.send_header("Content-Length", str(len(body)))
                   self.end_headers()
                   self.wfile.write(body)
+
+              def do_GET(self):
+                  self.reply({"status": "ok"})
+
+              def do_POST(self):
+                  self.reply({"choices": [{"message": {"role": "assistant", "content": ENTRY}}]})
 
               def log_message(self, *a):
                   pass
@@ -100,8 +110,13 @@ jobs:
           EOF
           python3 /tmp/mock-llm.py &
           MOCK_PID=$!
-          trap 'kill $MOCK_PID 2>/dev/null || true' EXIT
-          for _ in $(seq 1 50); do curl -s -o /dev/null http://127.0.0.1:8931/ && break; sleep 0.1; done
+          trap 'kill "$MOCK_PID" 2>/dev/null || true' EXIT
+          ready=0
+          for _ in $(seq 1 50); do
+            if curl -fsS -o /dev/null http://127.0.0.1:8931/; then ready=1; break; fi
+            sleep 0.1
+          done
+          test "$ready" -eq 1
 
           # A scratch git repo to release in.
           rm -rf /tmp/kaclaig-smoke && mkdir -p /tmp/kaclaig-smoke && cd /tmp/kaclaig-smoke
@@ -112,8 +127,10 @@ jobs:
           git add . && git commit -qm "init" && git tag v1.1.0
           echo "change" > feature.txt && git add . && git commit -qm "feat: add a feature"
 
-          # Generate the entry against the mock LLM (no file write).
-          "$GITHUB_WORKSPACE/bin/kaclaig" -tag 1.1.1 -from v1.1.0 -p \
-            --base-url http://127.0.0.1:8931/v1 --api-key test \
-            -model mock -no-write | tee /tmp/entry.md
+          # Generate the entry against the mock LLM. The old --base-url /
+          # --api-key flags were removed by the CLI flag rework; LLM settings
+          # now come from the -C inline config (no file write).
+          "$GITHUB_WORKSPACE/bin/kaclaig" -tag 1.1.1 -from v1.1.0 -p -no-write \
+            -C '{"providers":{"mock":{"settings":{"baseURL":"http://127.0.0.1:8931/v1","apiKey":"test"}}},"model":"mock/mock"}' \
+            | tee /tmp/entry.md
           grep -q "## \[1.1.1\]" /tmp/entry.md
