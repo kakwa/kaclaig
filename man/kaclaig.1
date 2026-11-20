@@ -1,0 +1,119 @@
+.TH KACLAIG 1 "November 2026" "kaclaig 1.0.0" "User Commands"
+.SH NAME
+kaclaig \- generate Keep a Changelog entries from git history using an LLM
+.SH SYNOPSIS
+.B kaclaig
+.RI [ OPTIONS ]
+.SH DESCRIPTION
+.B kaclaig
+reads the git log and diff between the current state and the latest parent tag,
+combines them with the existing changelog, and asks an OpenAI-compatible LLM to
+write a new Keep a Changelog 1.1.0 entry.
+.PP
+The generated entry is validated. If it is invalid, the reason is sent back to
+the LLM and it retries.
+.PP
+By default the entry is printed to stdout and no file is modified. Use
+.B \-w
+to write it into the changelog file.
+.SH OPTIONS
+.TP
+.BR \-M ", " \-\-major
+Bump the major version segment (ignored with \fB\-\-new-version\fR).
+.TP
+.BR \-m ", " \-\-minor
+Bump the minor version segment, resetting patch (ignored with \fB\-\-new-version\fR).
+.TP
+.BR \-p ", " \-\-patch
+Bump the patch version segment (ignored with \fB\-\-new-version\fR).
+.TP
+.BR \-u ", " \-\-unreleased
+Generate an \fB[Unreleased]\fR entry instead of a release. This is the default.
+.TP
+.BR \-S ", " \-\-semver\-check
+Enable the semver conformance check for release bumps. It is off by default.
+.TP
+.BR \-t ", " \-\-new-version " " \fITAG\fR
+New version or tag to generate. Overrides the bump flags. By default the
+version is derived from the latest tag.
+.TP
+.BR \-f ", " \-\-from " " \fITAG\fR
+Previous tag to diff against. Defaults to the latest parent tag.
+.TP
+.BR \-o ", " \-\-changelog " " \fIFILE\fR
+Path to the changelog file. Auto-detected when omitted.
+.TP
+.BR \-c ", " \-\-config " " \fIFILE\fR
+Path to an opencode-style LLM config file (\fBopencode.json\fR format).
+.TP
+.BR \-C ", " \-\-config\-blob " " \fIJSON\fR
+Inline LLM config JSON blob, in the same format as \fB\-\-config\fR. It takes
+precedence over \fB\-\-config\fR.
+.TP
+.BR \-d ", " \-\-dir " " \fIDIR\fR
+Git repository directory. Defaults to the current directory.
+.TP
+.BR \-w ", " \-\-write
+Update the changelog file instead of only printing the generated entry.
+When a section for the same version already exists, its entries are merged:
+existing lines are kept and only identical bullets are listed once.
+.TP
+.BR \-v ", " \-\-verbose
+Print progress and validation attempts to stderr.
+.SH LLM CONFIGURATION
+Connection settings are resolved in this order:
+.IP 1. 4
+the \fB\-C\fR / \fB\-\-config\-blob\fR inline JSON,
+.IP 2. 4
+the \fB\-c\fR / \fB\-\-config\fR file,
+.IP 3. 4
+\fB$HOME/.kaclaig\-llm/kaclaig.json\fR,
+.IP 4. 4
+\fB$HOME/.config/opencode/opencode.json\fR or \fBopencode.jsonc\fR,
+.IP 5. 4
+environment variables (\fBLLM_MODEL\fR, \fBLLM_BASE_URL\fR,
+\fBLLM_API_KEY\fR, \fBOPENAI_*\fR).
+.PP
+The config file uses the opencode provider format and selects the model with a
+\fB<provider>/<model>\fR string:
+.PP
+.nf
+{
+  "providers": {
+    "local": {
+      "settings": {
+        "baseURL": "https://ai.example.com/v1",
+        "apiKey": "secret"
+      },
+      "models": { "qwen3.8-27b": { "name": "Qwen 3.8 27B" } }
+    }
+  },
+  "model": "local/qwen3.8-27b"
+}
+.fi
+.SH NOTES
+Single-dash long option spellings, such as \fB\-major\fR or
+\fB\-new-version\fR, are also accepted. Short options can be combined
+(e.g. \fB\-pv\fR).
+.SH EXAMPLES
+.TP
+Print an \fB[Unreleased]\fR entry:
+.B kaclaig
+.TP
+Write a patch release into the changelog:
+.B kaclaig \-p \-w
+.TP
+Generate an explicit version against a specific parent tag:
+.B kaclaig \-\-new-version 1.2.0 \-\-from v1.1.0
+.TP
+Pass the LLM configuration inline:
+.B kaclaig \-C '{"providers":{"local":{"settings":{"baseURL":"http://localhost:11434/v1"}}},"model":"local/qwen3.8-27b"}'
+.SH FILES
+.TP
+.I $HOME/.kaclaig-llm/kaclaig.json
+Default LLM configuration file.
+.TP
+.I $HOME/.config/opencode/opencode.json
+Fallback opencode configuration file.
+.SH SEE ALSO
+The project README: https://github.com/kakwa/kaclaig
