@@ -127,10 +127,9 @@ jobs:
           git add . && git commit -qm "init" && git tag v1.1.0
           echo "change" > feature.txt && git add . && git commit -qm "feat: add a feature"
 
-          # Generate the entry against the mock LLM. The old --base-url /
-          # --api-key flags were removed by the CLI flag rework; LLM settings
-          # now come from the -C inline config (no file write).
-          "$GITHUB_WORKSPACE/bin/kaclaig" -tag 1.1.1 -from v1.1.0 -p -no-write \
+          # Generate the entry against the mock LLM (no file write).
+          # LLM settings are provided via an inline config blob (-C).
+          "$GITHUB_WORKSPACE/bin/kaclaig" --tag 1.1.1 --from v1.1.0 -p --no-write \
             -C '{"providers":{"mock":{"settings":{"baseURL":"http://127.0.0.1:8931/v1","apiKey":"test"}}},"model":"mock/mock"}' \
             | tee /tmp/entry.md
           grep -q "## \[1.1.1\]" /tmp/entry.md

@@ -54,29 +54,38 @@ kaclaig --no-write
 kaclaig -v
 ```
 
+Every option has a short form (e.g. `-p`) and a long form (e.g. `--patch`);
+both can be used interchangeably. Short options can be combined (`-pv`), and
+values can be passed as a separate argument or with `=` (`--tag=1.2.0`). The
+old single-dash long spellings (e.g. `-tag`) are still accepted for backwards
+compatibility.
+
 Version bumping is handled by
 [Masterminds/semver](https://pkg.go.dev/github.com/Masterminds/semver/v3);
 prerelease labels (e.g. `1.2.3-rc.1`) are preserved when bumping.
 
 ### Options
 
-| Flag | Description |
-| --- | --- |
-| `-u` | Update the `[Unreleased]` section (default) |
-| `-p` | Bump the patch version and create a release |
-| `-m` | Bump the minor version (reset patch) and create a release |
-| `-M` | Bump the major version (reset the rest) and create a release |
-| `--tag` | New version/tag to generate (overrides the bump flags) |
-| `--from` | Previous tag to diff against (default: latest parent tag) |
-| `--changelog` | Path to the changelog file (default: auto-detect) |
-| `-c` | Path to an LLM config file (opencode.json format) |
-| `-C` | Inline LLM config JSON blob, same format as the `-c` file; overrides it |
-| `--model` | LLM model name, overriding the config and environment |
-| `--dir` | Git repository directory (default: current directory) |
-| `--no-write` | Print the entry instead of updating the file |
-| `--semver-conformance-enabled` | Enable the semver conformance check (default: off) |
-| `--max-tries` | Maximum LLM attempts (default: 3) |
-| `-v` | Verbose output |
+| Flag                             | Description                                                              |
+| -------------------------------- | ------------------------------------------------------------------------ |
+| `-u`, `--unreleased`             | Update the `[Unreleased]` section (default)                              |
+| `-p`, `--patch`                  | Bump the patch version and create a release                              |
+| `-m`, `--minor`                  | Bump the minor version (reset patch) and create a release                |
+| `-M`, `--major`                  | Bump the major version (reset the rest) and create a release             |
+| `-t`, `--tag`                    | New version/tag to generate (overrides the bump flags)                   |
+| `-f`, `--from`                   | Previous tag to diff against (default: latest parent tag)                |
+| `-o`, `--changelog`              | Path to the changelog file (default: auto-detect)                        |
+| `-c`, `--config`                 | Path to an LLM config file (opencode.json format)                        |
+| `-C`, `--config-blob`            | Inline LLM config JSON blob, same format as `--config`; overrides it     |
+| `-l`, `--model`                  | LLM model name, overriding the config and environment                    |
+| `-b`, `--base-url`               | OpenAI-compatible API base URL, overriding the config and environment    |
+| `-k`, `--api-key`                | API key, overriding the config and environment                           |
+| `-d`, `--dir`                    | Git repository directory (default: current directory)                    |
+| `-n`, `--no-write`               | Print the entry instead of updating the file                             |
+| `--semver-conformance-enabled`   | Enable the semver conformance check (default: off)                       |
+| `-r`, `--max-tries`              | Maximum LLM attempts (default: 3)                                        |
+| `-T`, `--timeout`                | Per-request LLM timeout (default: 5m)                                    |
+| `-v`, `--verbose`                | Verbose output                                                           |
 
 The generated entries follow the [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/)
 specification: the standard categories (Added, Changed, Deprecated, Removed,
@@ -116,11 +125,11 @@ It never runs for `[Unreleased]` updates, since no bump is being made.
 
 Connection settings are resolved in priority order:
 
-1. the `--model` flag
-2. the `-C '<json blob>'` flag (same format as the config file, inline)
-3. the `-c <config file>` flag
+1. the `--model`, `--base-url`, and `--api-key` flags
+2. the `-C` / `--config-blob` inline JSON (same format as the config file)
+3. the `-c` / `--config` config file
 4. `$HOME/.kaclaig-llm/kaclaig.json`
-5. `$HOME/.config/opencode/opencode.json`
+5. `$HOME/.config/opencode/opencode.json` / `opencode.jsonc`
 6. environment variables (`LLM_MODEL`, `LLM_BASE_URL`, `LLM_API_KEY`, `OPENAI_*`)
 
 The config file (and the `-C` blob) uses the opencode.json provider format:
