@@ -12,8 +12,7 @@ Keep A Changelog, AI Generated. A tool to automatically generate
 reads the git log and diff between the current state and the latest parent tag,
 combines that with your existing changelog, and asks an LLM to write a new
 entry. The entry is validated against the Keep a Changelog format; if it is
-invalid, the reason is sent back to the LLM and it retries (up to
-`--max-tries`).
+invalid, the reason is sent back to the LLM and it retries (up to 3 times).
 
 ## Installation
 
@@ -28,16 +27,23 @@ make build   # -> bin/kaclaig
 make install # -> GOBIN
 ```
 
+A man page is included at [`man/kaclaig.1`](man/kaclaig.1); view it with
+`man -l man/kaclaig.1`.
+
 ## Usage
 
-By default the tool writes into the existing `[Unreleased]` section (it keeps
-any entries already there and adds the new ones from the commit log). Use
-`-p`, `-m`, or `-M` to create a release instead, which bumps the version and
-writes a dated `## [x.y.z] - YYYY-MM-DD` entry:
+By default the tool prints a new entry for the existing `[Unreleased]` section
+(it keeps any entries already there and adds the new ones from the commit log).
+Pass `-w` to write it into the changelog file. Use `-p`, `-m`, or `-M` to
+create a release instead, which bumps the version and writes a dated
+`## [x.y.z] - YYYY-MM-DD` entry:
 
 ```bash
-# Default: update the [Unreleased] section
+# Default: print the [Unreleased] entry; nothing is written
 kaclaig
+
+# Update the changelog file instead of printing only
+kaclaig -w
 
 # Create a release: bump the version, dated entry, Unreleased section is folded in
 kaclaig -p    # patch: 0.2.1 -> 0.2.2
@@ -45,10 +51,7 @@ kaclaig -m    # minor: 0.2.1 -> 0.3.0
 kaclaig -M    # major: 0.2.1 -> 1.0.0
 
 # Choose versions explicitly (overrides the bump flags)
-kaclaig --tag 1.2.0 --from v1.1.0
-
-# Just print the entry, don't touch the file
-kaclaig --no-write
+kaclaig --new-version 1.2.0 --from v1.1.0
 
 # Verbose mode shows the validation attempts
 kaclaig -v
@@ -56,9 +59,9 @@ kaclaig -v
 
 Every option has a short form (e.g. `-p`) and a long form (e.g. `--patch`);
 both can be used interchangeably. Short options can be combined (`-pv`), and
-values can be passed as a separate argument or with `=` (`--tag=1.2.0`). The
-old single-dash long spellings (e.g. `-tag`) are still accepted for backwards
-compatibility.
+values can be passed as a separate argument or with `=`
+(`--new-version=1.2.0`). Single-dash long spellings (e.g. `-new-version`) are
+also accepted.
 
 Version bumping is handled by
 [Masterminds/semver](https://pkg.go.dev/github.com/Masterminds/semver/v3);
@@ -66,26 +69,21 @@ prerelease labels (e.g. `1.2.3-rc.1`) are preserved when bumping.
 
 ### Options
 
-| Flag                             | Description                                                              |
-| -------------------------------- | ------------------------------------------------------------------------ |
-| `-u`, `--unreleased`             | Update the `[Unreleased]` section (default)                              |
-| `-p`, `--patch`                  | Bump the patch version and create a release                              |
-| `-m`, `--minor`                  | Bump the minor version (reset patch) and create a release                |
-| `-M`, `--major`                  | Bump the major version (reset the rest) and create a release             |
-| `-t`, `--tag`                    | New version/tag to generate (overrides the bump flags)                   |
-| `-f`, `--from`                   | Previous tag to diff against (default: latest parent tag)                |
-| `-o`, `--changelog`              | Path to the changelog file (default: auto-detect)                        |
-| `-c`, `--config`                 | Path to an LLM config file (opencode.json format)                        |
-| `-C`, `--config-blob`            | Inline LLM config JSON blob, same format as `--config`; overrides it     |
-| `-l`, `--model`                  | LLM model name, overriding the config and environment                    |
-| `-b`, `--base-url`               | OpenAI-compatible API base URL, overriding the config and environment    |
-| `-k`, `--api-key`                | API key, overriding the config and environment                           |
-| `-d`, `--dir`                    | Git repository directory (default: current directory)                    |
-| `-n`, `--no-write`               | Print the entry instead of updating the file                             |
-| `--semver-conformance-enabled`   | Enable the semver conformance check (default: off)                       |
-| `-r`, `--max-tries`              | Maximum LLM attempts (default: 3)                                        |
-| `-T`, `--timeout`                | Per-request LLM timeout (default: 5m)                                    |
-| `-v`, `--verbose`                | Verbose output                                                           |
+| Flag                   | Description                                                          |
+| ---------------------- | -------------------------------------------------------------------- |
+| `-M`, `--major`        | Bump the major version (reset the rest) and create a release         |
+| `-m`, `--minor`        | Bump the minor version (reset patch) and create a release            |
+| `-p`, `--patch`        | Bump the patch version and create a release                          |
+| `-u`, `--unreleased`   | Generate an `[Unreleased]` entry (default)                           |
+| `-S`, `--semver-check` | Enable the semver conformance check (default: off)                   |
+| `-t`, `--new-version`  | New version to generate (overrides the bump flags)                   |
+| `-f`, `--from`         | Previous tag to diff against (default: latest parent tag)            |
+| `-o`, `--changelog`    | Path to the changelog file (default: auto-detect)                    |
+| `-c`, `--config`       | Path to an LLM config file (opencode.json format)                    |
+| `-C`, `--config-blob`  | Inline LLM config JSON blob, same format as `--config`; overrides it |
+| `-d`, `--dir`          | Git repository directory (default: current directory)                |
+| `-w`, `--write`        | Update the changelog file (default: print only)                      |
+| `-v`, `--verbose`      | Verbose output                                                       |
 
 The generated entries follow the [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/)
 specification: the standard categories (Added, Changed, Deprecated, Removed,
@@ -95,7 +93,7 @@ bullet points in the imperative mood.
 ### Semver conformance check
 
 The semver conformance check is **off by default**; enable it with
-`--semver-conformance-enabled`. When enabled, `kaclaig` checks that the
+`-S` / `--semver-check`. When enabled, `kaclaig` checks that the
 version bump is consistent with the change, per
 [Semantic Versioning](https://semver.org/):
 
@@ -125,12 +123,11 @@ It never runs for `[Unreleased]` updates, since no bump is being made.
 
 Connection settings are resolved in priority order:
 
-1. the `--model`, `--base-url`, and `--api-key` flags
-2. the `-C` / `--config-blob` inline JSON (same format as the config file)
-3. the `-c` / `--config` config file
-4. `$HOME/.kaclaig-llm/kaclaig.json`
-5. `$HOME/.config/opencode/opencode.json` / `opencode.jsonc`
-6. environment variables (`LLM_MODEL`, `LLM_BASE_URL`, `LLM_API_KEY`, `OPENAI_*`)
+1. the `-C` / `--config-blob` inline JSON (same format as the config file)
+2. the `-c` / `--config` config file
+3. `$HOME/.kaclaig-llm/kaclaig.json`
+4. `$HOME/.config/opencode/opencode.json` / `opencode.jsonc`
+5. environment variables (`LLM_MODEL`, `LLM_BASE_URL`, `LLM_API_KEY`, `OPENAI_*`)
 
 The config file (and the `-C` blob) uses the opencode.json provider format:
 

@@ -1,8 +1,12 @@
-BINARY  ?= kaclaig
-BIN     := bin/$(BINARY)
-PKG     := ./...
-COV     ?= coverage.out
-GOFLAGS ?=
+BINARY    ?= kaclaig
+BIN       := bin/$(BINARY)
+PKG       := ./...
+COV       ?= coverage.out
+GOFLAGS   ?=
+PREFIX    ?= /usr/local
+MANPREFIX ?= $(PREFIX)/share/man
+MAN1DIR   ?= $(MANPREFIX)/man1
+DESTDIR   ?=
 
 .PHONY: all build install test test-race coverage vet fmt fmt-check clean
 
@@ -12,9 +16,11 @@ all: fmt-check vet build
 build:
 	go build $(GOFLAGS) -o $(BIN) ./cmd/kaclaig
 
-## install: install the CLI into GOBIN
+## install: install the CLI into GOBIN and the man page into $(MAN1DIR)
 install:
 	go install $(GOFLAGS) ./cmd/kaclaig
+	install -d "$(DESTDIR)$(MAN1DIR)"
+	install -m 0644 man/kaclaig.1 "$(DESTDIR)$(MAN1DIR)/$(BINARY).1"
 
 ## test: run all tests
 test:

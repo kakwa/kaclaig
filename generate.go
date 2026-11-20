@@ -483,42 +483,206 @@ func (g *Generator) writeEntry(entry string) error {
 		return os.WriteFile(g.KeepFile, []byte(out), 0o644)
 	}
 
-	header := fmt.Sprintf("## [%s]\n", g.NewTag)
-
-	// Replace the Unreleased section with the new entry, or insert the new
-	// entry right after the top-level header/intro. The LLM was instructed
-	// to fold any Unreleased content into the new entry, so the stale
-	// section (header and content) is dropped.
-	if start, end := unreleasedSection(existing); start >= 0 {
-		out = existing[:start] + strings.TrimRight(entry, "\n") + "\n\n" + existing[end:]
-	} else {
-		// Insert after the first top-level heading line, or at the top.
-		idx := indexAfterFirstHeaderLine(existing)
-		if idx < 0 {
-			out = entry + "\n\n" + existing
+	version := normalizeVersion(g.NewTag)
+	lines := strings.Split(existing, "\n")
+	ranges := versionSectionLineRanges(lines, version)
+	if len(ranges) == 0 {
+		// Replace the Unreleased section with the new entry, or insert the new
+		// entry right after the top-level header/intro. The LLM was instructed
+		// to fold any Unreleased content into the new entry, so the stale
+		// section (header and content) is dropped.
+		if start, end := unreleasedSection(existing); start >= 0 {
+			out = existing[:start] + strings.TrimRight(entry, "\n") + "\n\n" + existing[end:]
 		} else {
-			out = existing[:idx] + "\n" + entry + "\n" + existing[idx:]
-		}
-	}
-
-	// Ensure the version header appears exactly once in the file.
-	if countOccurrences(out, header) > 1 {
-		// Deduplicate: drop the older occurrence (keep the first).
-		first := strings.Index(out, header)
-		second := strings.Index(out[first+len(header):], header)
-		if first >= 0 && second >= 0 {
-			secondAbs := first + len(header) + second
-			// Remove the second header and its content up to the next header.
-			next := strings.Index(out[secondAbs:], "\n## ")
-			end := secondAbs
-			if next >= 0 {
-				end = secondAbs + next
+			idx := indexAfterFirstHeaderLine(existing)
+			if idx < 0 {
+				out = entry + "\n\n" + existing
+			} else {
+				out = existing[:idx] + "\n" + entry + "\n" + existing[idx:]
 			}
-			out = out[:secondAbs] + out[end:]
+		}
+		return os.WriteFile(g.KeepFile, []byte(out), 0o644)
+	}
+
+	// The version already has a section (possibly several, from earlier runs).
+	// Merge the new entry into it instead of prepending a duplicate: old lines
+	// are kept and only identical entries are listed once.
+	sections := make([]string, 0, len(ranges)+1)
+	for _, r := range ranges {
+		sections = append(sections, strings.Join(lines[r[0]:r[1]], "\n"))
+	}
+	sections = append(sections, entry)
+	merged := mergeChangelogSections(sections)
+
+	drop := make(map[int]bool)
+	if start, end := unreleasedSectionLineRange(lines); start >= 0 {
+		for i := start; i < end; i++ {
+			drop[i] = true
+		}
+	}
+	for _, r := range ranges {
+		for i := r[0]; i < r[1]; i++ {
+			drop[i] = true
 		}
 	}
 
+	var b strings.Builder
+	insertAt := ranges[0][0]
+	for i, line := range lines {
+		if i == insertAt {
+			b.WriteString(merged)
+			b.WriteString("\n\n")
+		}
+		if drop[i] {
+			continue
+		}
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	out = strings.TrimRight(collapseBlankLines(b.String()), "\n") + "\n"
 	return os.WriteFile(g.KeepFile, []byte(out), 0o644)
+}
+
+var sectionHeaderRe = regexp.MustCompile(`^\s*##\s+\[([^\]]+)\]`)
+
+// normalizeVersion makes "v1.2.3" and "1.2.3" compare equal.
+func normalizeVersion(v string) string {
+	v = strings.TrimSpace(v)
+	return strings.TrimPrefix(strings.TrimPrefix(v, "v"), "V")
+}
+
+// versionSectionLineRanges returns the [start, end) line ranges of every
+// section whose header names version (duplicate headers are allowed).
+func versionSectionLineRanges(lines []string, version string) [][2]int {
+	var ranges [][2]int
+	for i, line := range lines {
+		m := sectionHeaderRe.FindStringSubmatch(line)
+		if m == nil || normalizeVersion(m[1]) != version {
+			continue
+		}
+		end := len(lines)
+		for j := i + 1; j < len(lines); j++ {
+			if strings.HasPrefix(strings.TrimSpace(lines[j]), "## ") {
+				end = j
+				break
+			}
+		}
+		ranges = append(ranges, [2]int{i, end})
+	}
+	return ranges
+}
+
+// unreleasedSectionLineRange is the line-based counterpart of
+// unreleasedSection.
+func unreleasedSectionLineRange(lines []string) (int, int) {
+	for i, line := range lines {
+		if !isUnreleasedHeader(line) {
+			continue
+		}
+		end := len(lines)
+		for j := i + 1; j < len(lines); j++ {
+			if strings.HasPrefix(strings.TrimSpace(lines[j]), "## ") {
+				end = j
+				break
+			}
+		}
+		return i, end
+	}
+	return -1, -1
+}
+
+var sectionDateRe = regexp.MustCompile(`\d{4}-\d{2}-\d{2}`)
+
+// mergeChangelogSections combines sections for the same version into one,
+// preserving the order of existing entries and dropping only identical lines.
+func mergeChangelogSections(sections []string) string {
+	header := ""
+	headerHasDate := false
+	var order []string
+	items := map[string][][]string{}
+	seen := map[string]bool{}
+
+	ensureCategory := func(category string) {
+		if _, ok := items[category]; !ok {
+			order = append(order, category)
+			items[category] = nil
+		}
+	}
+
+	for _, section := range sections {
+		lines := strings.Split(strings.TrimRight(section, "\n"), "\n")
+		if len(lines) == 0 {
+			continue
+		}
+		h := strings.TrimRight(lines[0], " \t")
+		if header == "" || (!headerHasDate && sectionDateRe.MatchString(h)) {
+			header = h
+			headerHasDate = sectionDateRe.MatchString(h)
+		}
+		category := ""
+		for i := 1; i < len(lines); i++ {
+			trimmed := strings.TrimSpace(lines[i])
+			if trimmed == "" {
+				continue
+			}
+			if strings.HasPrefix(trimmed, "### ") {
+				category = trimmed
+				ensureCategory(category)
+				continue
+			}
+			item := []string{lines[i]}
+			if isBulletLine(trimmed) {
+				for i+1 < len(lines) && isContinuationLine(lines[i+1]) {
+					i++
+					item = append(item, lines[i])
+				}
+			}
+			ensureCategory(category)
+			key := category + "\x00" + strings.TrimSpace(strings.Join(item, "\n"))
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			items[category] = append(items[category], item)
+		}
+	}
+
+	var b strings.Builder
+	b.WriteString(header)
+	writeItems := func(category string) {
+		for _, item := range items[category] {
+			b.WriteString("\n")
+			b.WriteString(strings.Join(item, "\n"))
+		}
+	}
+	writeItems("")
+	for _, category := range order {
+		if category == "" {
+			continue
+		}
+		b.WriteString("\n\n")
+		b.WriteString(category)
+		writeItems(category)
+	}
+	return b.String()
+}
+
+func isBulletLine(trimmed string) bool {
+	return strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "* ") || strings.HasPrefix(trimmed, "+ ")
+}
+
+func isContinuationLine(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || isBulletLine(trimmed) || strings.HasPrefix(trimmed, "### ") || strings.HasPrefix(trimmed, "## ") {
+		return false
+	}
+	return line[0] == ' ' || line[0] == '\t'
+}
+
+var blankLinesRe = regexp.MustCompile(`\n{3,}`)
+
+func collapseBlankLines(s string) string {
+	return blankLinesRe.ReplaceAllString(s, "\n\n")
 }
 
 // unreleasedSection returns the byte offsets [start, end) of the
@@ -570,10 +734,6 @@ func indexAfterFirstHeaderLine(s string) int {
 		}
 	}
 	return -1
-}
-
-func countOccurrences(s, sub string) int {
-	return strings.Count(s, sub)
 }
 
 // FindChangelog locates a changelog file in the given directory.

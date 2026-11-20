@@ -129,7 +129,7 @@ jobs:
 
           # Generate the entry against the mock LLM (no file write).
           # LLM settings are provided via an inline config blob (-C).
-          "$GITHUB_WORKSPACE/bin/kaclaig" --tag 1.1.1 --from v1.1.0 -p --no-write \
+          "$GITHUB_WORKSPACE/bin/kaclaig" --new-version 1.1.1 --from v1.1.0 -p \
             -C '{"providers":{"mock":{"settings":{"baseURL":"http://127.0.0.1:8931/v1","apiKey":"test"}}},"model":"mock/mock"}' \
             | tee /tmp/entry.md
           grep -q "## \[1.1.1\]" /tmp/entry.md

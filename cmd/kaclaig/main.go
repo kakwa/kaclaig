@@ -47,17 +47,12 @@ func main() {
 	semverConformance := opts.semverConformance
 	gen := &kaclaig.Generator{
 		Dir:               opts.dir,
-		NewTag:            opts.newTag,
+		NewTag:            opts.newVersion,
 		OldTag:            opts.oldTag,
 		Bump:              bump,
-		Model:             opts.model,
-		MaxTries:          opts.maxTries,
 		KeepFile:          opts.changelogFile,
-		NoWrite:           opts.noWrite,
+		NoWrite:           !opts.write,
 		Verbose:           opts.verbose,
-		Timeout:           opts.timeout,
-		BaseURL:           opts.baseURL,
-		APIKey:            opts.apiKey,
 		Config:            opts.config,
 		ConfigBlob:        opts.configBlob,
 		SemverConformance: &semverConformance,
@@ -69,7 +64,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if opts.noWrite {
+	if !opts.write {
 		fmt.Println(entry)
 	} else {
 		fmt.Fprintln(os.Stderr, "Done. Entry:")

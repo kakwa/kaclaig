@@ -474,3 +474,67 @@ func TestGeneratorNoWrite(t *testing.T) {
 		t.Error("no-write mode must not modify the changelog file")
 	}
 }
+
+func TestWriteEntryMergesExistingVersion(t *testing.T) {
+	existing := "# Changelog\n\n" +
+		"## [Unreleased]\n\n### Added\n- From unreleased\n\n" +
+		"## [1.0.0] \n\n### Added\n- old added\n- shared\n\n### Changed\n- old changed\n\n" +
+		"## [1.0.0] - 2026-11-20\n\n### Added\n- shared\n- second added\n\n" +
+		"## [0.1.0] - 2026-11-19\n\n### Added\n- initial\n"
+	entry := "## [1.0.0] - 2026-11-20\n\n### Added\n- shared\n- new added\n\n### Fixed\n- a fix\n"
+
+	path := filepath.Join(t.TempDir(), "CHANGELOG.md")
+	gen := &Generator{KeepFile: path, Existing: existing, NewTag: "1.0.0"}
+	if err := gen.writeEntry(entry); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(data)
+
+	if n := strings.Count(out, "## [1.0.0]"); n != 1 {
+		t.Errorf("got %d release headers, want 1:\n%s", n, out)
+	}
+	if !strings.Contains(out, "## [1.0.0] - 2026-11-20") {
+		t.Errorf("dated header was not kept:\n%s", out)
+	}
+	if strings.Contains(out, "## [Unreleased]") || strings.Contains(out, "From unreleased") {
+		t.Errorf("stale Unreleased section was not dropped:\n%s", out)
+	}
+	for _, want := range []string{"old added", "second added", "new added", "old changed", "a fix", "initial"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q:\n%s", want, out)
+		}
+	}
+	if n := strings.Count(out, "- shared"); n != 1 {
+		t.Errorf("duplicate bullet kept %d times, want 1:\n%s", n, out)
+	}
+	old, second, fresh := strings.Index(out, "old added"), strings.Index(out, "second added"), strings.Index(out, "new added")
+	if !(old < second && second < fresh) {
+		t.Errorf("old lines were not kept before new ones:\n%s", out)
+	}
+}
+
+func TestWriteEntryInsertsNewVersion(t *testing.T) {
+	existing := "# Changelog\n\n## [1.0.0] - 2026-11-20\n\n### Added\n- released\n"
+	entry := "## [1.1.0] - 2026-11-21\n\n### Added\n- newer\n"
+
+	path := filepath.Join(t.TempDir(), "CHANGELOG.md")
+	gen := &Generator{KeepFile: path, Existing: existing, NewTag: "1.1.0"}
+	if err := gen.writeEntry(entry); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(data)
+	if strings.Index(out, "## [1.1.0]") > strings.Index(out, "## [1.0.0]") {
+		t.Errorf("new version was not inserted before the existing one:\n%s", out)
+	}
+	if !strings.Contains(out, "- released") || !strings.Contains(out, "- newer") {
+		t.Errorf("existing or new entry was lost:\n%s", out)
+	}
+}
