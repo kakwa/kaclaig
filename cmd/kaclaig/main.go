@@ -14,7 +14,11 @@ import (
 func main() {
 	opts, err := parseOptions(os.Args[1:], os.Stderr)
 	if err != nil {
-		if errors.Is(err, pflag.ErrHelp) {
+		switch {
+		case errors.Is(err, pflag.ErrHelp):
+			return
+		case errors.Is(err, ErrVersion):
+			fmt.Printf("kaclaig %s\n", versionString())
 			return
 		}
 		os.Exit(2)

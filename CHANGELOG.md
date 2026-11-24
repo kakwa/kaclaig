@@ -1,4 +1,15 @@
+## [0.3.0] - 2026-11-25
+
+### Changed
+- improve test generation and git data handling
+
 ## [0.2.0] - 2026-11-20
+
+### Fixed
+- fix badge URLs in the project README
+- 2026-11-20
+- fix smoke test and CI pipeline
+- fix option and entry merge behavior
 
 ### Added
 - add long option support and improve CLI argument parsing
@@ -14,14 +25,8 @@
 - the `--base-url`, `--api-key`, and `--timeout` flags: connection settings now live in the `-C`/`-c` config blob or environment variables (the per-request LLM timeout now defaults to 5 minutes)
 - the `--no-semver` flag: the semver conformance check is disabled by default and is enabled with `--semver-check`
 
-### Fixed
-- fix smoke test and CI pipeline
-- fix option and entry merge behavior
-
-
 ## [0.1.0] - 2026-11-19
 
 ### Added
 - add support for initial project code
 - add changelog and README
-

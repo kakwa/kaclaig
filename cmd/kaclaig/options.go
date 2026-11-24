@@ -24,6 +24,7 @@ type options struct {
 	write             bool
 	semverConformance bool
 	verbose           bool
+	showVersion       bool
 }
 
 // legacyLongNames are the long option names that are also accepted with a
@@ -42,7 +43,12 @@ var legacyLongNames = map[string]bool{
 	"write":        true,
 	"verbose":      true,
 	"semver-check": true,
+	"version":      true,
 }
+
+// ErrVersion signals that --version was requested. Like ErrHelp, it tells the
+// caller to exit successfully without running the generator.
+var ErrVersion = errors.New("version requested")
 
 // normalizeLegacyArgs rewrites single-dash long options (`-new-version`) to
 // their canonical double-dash form (`--new-version`). Short options and
@@ -84,6 +90,7 @@ func newFlagSet(opts *options, out io.Writer) *pflag.FlagSet {
 	fs.StringVarP(&opts.dir, "dir", "d", ".", "git repository `DIR` (default: current directory)")
 	fs.BoolVarP(&opts.write, "write", "w", false, "update the changelog file (default: print the generated entry)")
 	fs.BoolVarP(&opts.verbose, "verbose", "v", false, "verbose output")
+	fs.BoolVarP(&opts.showVersion, "version", "V", false, "print the version and exit")
 
 	fs.Usage = func() { printUsage(out, fs) }
 	return fs
@@ -99,8 +106,8 @@ func printUsage(out io.Writer, fs *pflag.FlagSet) {
 }
 
 // parseOptions parses args using GNU-style short and long options. Parse
-// errors and help output are written to out; ErrHelp is returned unchanged so
-// callers can exit successfully without printing anything else.
+// errors and help output are written to out; ErrHelp and ErrVersion are
+// returned unchanged so callers can exit successfully.
 func parseOptions(args []string, out io.Writer) (*options, error) {
 	opts := &options{}
 	fs := newFlagSet(opts, out)
@@ -112,6 +119,10 @@ func parseOptions(args []string, out io.Writer) (*options, error) {
 		fmt.Fprintf(out, "error: %v\n", err)
 		fs.Usage()
 		return nil, err
+	}
+
+	if opts.showVersion {
+		return nil, ErrVersion
 	}
 
 	if extra := fs.Args(); len(extra) > 0 {

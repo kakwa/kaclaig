@@ -683,3 +683,25 @@ func TestWriteEntryInsertsNewVersion(t *testing.T) {
 		t.Errorf("existing or new entry was lost:\n%s", out)
 	}
 }
+
+func TestWriteEntryWithoutTitleKeepsFirstHeaderIntact(t *testing.T) {
+	// Changelogs need not start with a "# Changelog" title. Inserting a new
+	// release must not split the first release header at a byte offset derived
+	// from a line index (regression: indexAfterFirstHeaderLine).
+	existing := "## [1.0.0] - 2026-11-20\n\n### Added\n- released\n"
+	entry := "## [1.1.0] - 2026-11-21\n\n### Added\n- newer\n"
+
+	path := filepath.Join(t.TempDir(), "CHANGELOG.md")
+	gen := &Generator{KeepFile: path, Existing: existing, NewTag: "1.1.0"}
+	if err := gen.writeEntry(entry); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := entry + "\n\n" + existing
+	if got := string(data); got != want {
+		t.Errorf("writeEntry output:\n%s\nwant:\n%s", got, want)
+	}
+}

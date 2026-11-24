@@ -727,10 +727,13 @@ func offsetOfLine(lines []string, i int) int {
 }
 
 func indexAfterFirstHeaderLine(s string) int {
-	for i, line := range strings.Split(s, "\n") {
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "#") && !strings.HasPrefix(trimmed, "## [") {
-			return i + len(line) // offset of end of this line
+		// Only an H1 title counts as a place to insert after; release
+		// headers ("## [...]") and category headers ("### ...") do not.
+		if strings.HasPrefix(trimmed, "#") && !strings.HasPrefix(trimmed, "##") {
+			return offsetOfLine(lines, i) + len(line) // byte offset of end of this line
 		}
 	}
 	return -1

@@ -84,6 +84,11 @@ prerelease labels (e.g. `1.2.3-rc.1`) are preserved when bumping.
 | `-d`, `--dir`          | Git repository directory (default: current directory)                |
 | `-w`, `--write`        | Update the changelog file (default: print only)                      |
 | `-v`, `--verbose`      | Verbose output                                                       |
+| `-V`, `--version`      | Print the version and exit                                           |
+
+`--version` prints the version recorded in the Go build info, or `dev` for
+local builds. Set it explicitly at build time with
+`-ldflags "-X main.version=vX.Y.Z"` when needed.
 
 The generated entries follow the [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/)
 specification: the standard categories (Added, Changed, Deprecated, Removed,
@@ -215,6 +220,38 @@ make vet        # go vet
 make fmt        # gofmt
 make build      # build the CLI
 ```
+
+### Releasing
+
+Releases are handled by four make targets. All use `kaclaig` to generate or
+validate the changelog entry and run its semver conformance check by default:
+
+```bash
+make version-bump-minor  # writes CHANGELOG.md, never commits
+make version-bump-major  # idem, major bump
+make version-bump-patch  # idem, patch bump
+# review and commit the change yourself
+make tag                 # requires a clean tree; validates the release, then tags HEAD
+```
+
+The `version-bump-*` targets write the new release entry but deliberately
+leave it uncommitted. `tag` refuses to run if `git status --porcelain` reports
+anything (tracked modifications or untracked files), takes the version from
+the newest released `## [x.y.z]` heading in `CHANGELOG.md` (ignoring
+`[Unreleased]`), validates that version with `kaclaig` in print-only mode, and
+creates an annotated tag `x.y.z` with message `release x.y.z`. It fails if the
+tag already exists or the semver check rejects the bump.
+
+Opt-outs:
+
+- `KACLIAIG=0` skips `kaclaig` entirely. The `version-bump-*` targets then only
+  prepend a bare version header (no changelog generation, no semver check);
+  `tag` only checks the tree and creates the tag.
+- `SEMVER_CHECK=0` keeps changelog generation but omits `-S` / `--semver-check`.
+- `KACLIAIG_FLAGS='...'` passes extra flags to `kaclaig`, e.g.
+  `KACLIAIG_FLAGS="-C '{\"model\":...}'"` for an inline LLM config.
+- `CHANGELOG=path/to/CHANGELOG.md` overrides the changelog file used by both
+  the make logic and `kaclaig`.
 
 The tests require `git` on `PATH` and run unattended: they create temporary
 repositories with backdated tags and use local `httptest` servers as mock

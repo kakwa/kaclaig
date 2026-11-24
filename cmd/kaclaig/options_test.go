@@ -158,6 +158,7 @@ func TestParseOptionsHelp(t *testing.T) {
 		"-S, --semver-check",
 		"-w, --write",
 		"-v, --verbose",
+		"-V, --version",
 	} {
 		if !strings.Contains(usage, want) {
 			t.Errorf("help output missing %q:\n%s", want, usage)
@@ -187,6 +188,24 @@ func TestParseOptionsHelp(t *testing.T) {
 			t.Errorf("help output flags out of order at %q:\n%s", want, usage)
 		}
 		prev = i
+	}
+}
+
+func TestParseOptionsVersion(t *testing.T) {
+	for _, args := range [][]string{{"--version"}, {"-V"}, {"-version"}} {
+		t.Run(args[0], func(t *testing.T) {
+			var out bytes.Buffer
+			opts, err := parseOptions(args, &out)
+			if !errors.Is(err, ErrVersion) {
+				t.Fatalf("error = %v, want ErrVersion", err)
+			}
+			if opts != nil {
+				t.Errorf("opts = %+v, want nil", opts)
+			}
+			if out.Len() != 0 {
+				t.Errorf("unexpected output: %q", out.String())
+			}
+		})
 	}
 }
 
