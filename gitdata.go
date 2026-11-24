@@ -58,9 +58,10 @@ func LatestTag(ctx context.Context, dir string) (string, error) {
 }
 
 // PreviousTag returns the tag that immediately precedes before in the
-// release history: the chronologically latest tag whose commit date is not
-// after the date of before, excluding before itself. When before is empty,
-// it returns the latest tag in the repository.
+// release history: the latest tag reachable from the commit just before the
+// one before points at. Using the commit ancestry (rather than dates) keeps
+// the result correct even when two tags share the same date. When before is
+// empty, it returns the latest tag in the repository.
 func PreviousTag(ctx context.Context, dir, before string) (string, error) {
 	out, err := RunGit(ctx, dir, "tag", "-l")
 	if err != nil {
@@ -76,22 +77,29 @@ func PreviousTag(ctx context.Context, dir, before string) (string, error) {
 		return "", errors.New("no tags found in repository")
 	}
 
+	if before != "" {
+		// The parent is the newest tag reachable from the commit that
+		// precedes the one before points at. --tags includes lightweight
+		// tags; a missing parent (e.g. the very first release) yields an
+		// empty result.
+		if parent, err := RunGit(ctx, dir, "describe", "--tags", "--abbrev=0", before+"~1"); err == nil {
+			return strings.TrimSpace(parent), nil
+		}
+		return "", nil
+	}
+
+	// No explicit "before": return the newest tag by author date, with the
+	// tag name as a deterministic tiebreaker for tags on the same date.
 	type tagged struct {
 		tag  string
 		when time.Time
 		ok   bool
 	}
-	var list []tagged
-	var beforeTime time.Time
-	if before != "" {
-		beforeTime, _ = tagTime(ctx, dir, before)
-	}
-
+	list := make([]tagged, 0, len(tags))
 	for _, tag := range tags {
 		t, err := tagTime(ctx, dir, tag)
 		list = append(list, tagged{tag: tag, when: t, ok: err == nil})
 	}
-
 	sort.Slice(list, func(i, j int) bool {
 		if !list[i].ok && !list[j].ok {
 			return list[i].tag > list[j].tag
@@ -107,23 +115,7 @@ func PreviousTag(ctx context.Context, dir, before string) (string, error) {
 		}
 		return list[i].when.After(list[j].when)
 	})
-
-	for _, e := range list {
-		if before != "" && e.tag == before {
-			continue
-		}
-		if before != "" && beforeTime.IsZero() {
-			break
-		}
-		if before != "" && !e.ok {
-			continue
-		}
-		if before != "" && !e.when.Before(beforeTime) {
-			continue
-		}
-		return e.tag, nil
-	}
-	return "", nil
+	return list[0].tag, nil
 }
 
 // tagTime returns the author date of the commit a tag points at. The author
@@ -137,6 +129,39 @@ func tagTime(ctx context.Context, dir, tag string) (time.Time, error) {
 	return time.Parse(time.RFC3339, strings.TrimSpace(out))
 }
 
+// tagTarget returns the commit-ish a version resolves to, or "" when no tag
+// matches. Tags are commonly written with a leading "v" while the version
+// string is not (or vice versa), so each spelling is tried. The peeled commit
+// (what the tag ultimately points at) is preferred so annotated tags resolve
+// to the same commit as the raw tag reference.
+func tagTarget(ctx context.Context, dir, version string) string {
+	seen := map[string]bool{}
+	for _, candidate := range tagCandidates(version) {
+		if seen[candidate] {
+			continue
+		}
+		seen[candidate] = true
+		if out, err := RunGit(ctx, dir, "rev-parse", candidate+"^{commit}"); err == nil {
+			return strings.TrimSpace(out)
+		}
+	}
+	return ""
+}
+
+// tagCandidates returns the tag spellings to try for a version, in order of
+// preference: the version itself, then with a "v" or "V" prefix.
+func tagCandidates(version string) []string {
+	v := strings.TrimSpace(version)
+	if v == "" {
+		return nil
+	}
+	candidates := []string{v}
+	if v[0] != 'v' && v[0] != 'V' {
+		candidates = append(candidates, "v"+v, "V"+v)
+	}
+	return candidates
+}
+
 // HeadCommit returns the subject line of the HEAD commit.
 func HeadCommit(ctx context.Context, dir string) (string, error) {
 	out, err := RunGit(ctx, dir, "log", "-1", "--format=%s")
@@ -146,27 +171,39 @@ func HeadCommit(ctx context.Context, dir string) (string, error) {
 	return strings.TrimSpace(out), nil
 }
 
-// CollectGitData gathers the git log and diff between oldTag and HEAD
-// (the whole history when oldTag is empty). newTag is the version being
-// generated and is only recorded in the result.
+// CollectGitData gathers the git log and diff between oldTag and the range
+// end (the whole history when oldTag is empty). newTag is the version being
+// generated and is recorded in the result; when it already exists as a tag it
+// is used as the range end, so regenerating an existing release only covers
+// the commits up to that release rather than everything up to HEAD.
 func CollectGitData(ctx context.Context, dir, newTag, oldTag string) (*GitData, error) {
 	if _, err := RunGit(ctx, dir, "rev-parse", "--git-dir"); err != nil {
 		return nil, errors.New("not a git repository (or not inside one)")
 	}
 
 	data := &GitData{NewTag: newTag, OldTag: oldTag}
-	data.Subject, _ = HeadCommit(ctx, dir)
 
-	// The new tag normally doesn't exist yet (it's being generated), so the
-	// range always ends at HEAD.
-	revRange := "HEAD"
+	// The range normally ends at HEAD because the new tag doesn't exist yet.
+	// When the tag already exists (a regeneration), end the range at the tag
+	// so commits made after the release aren't folded into it.
+	end := "HEAD"
+	data.Subject, _ = HeadCommit(ctx, dir)
+	if t := tagTarget(ctx, dir, newTag); t != "" {
+		end = t
+		subj, err := RunGit(ctx, dir, "log", "-1", "--format=%s", t)
+		if err == nil {
+			data.Subject = strings.TrimSpace(subj)
+		}
+	}
+
+	revRange := end
 	if oldTag != "" {
-		revRange = oldTag + "..HEAD"
+		revRange = oldTag + ".." + end
 	}
 
 	logOut, logErr := RunGit(ctx, dir, "log", "--no-merges", "--pretty=format:%h %s", revRange)
 	if logErr != nil {
-		logOut, logErr = RunGit(ctx, dir, "log", "--no-merges", "-1", "--pretty=format:%h %s", "HEAD")
+		logOut, logErr = RunGit(ctx, dir, "log", "--no-merges", "-1", "--pretty=format:%h %s", end)
 	}
 	if logErr != nil {
 		return nil, logErr
@@ -179,7 +216,7 @@ func CollectGitData(ctx context.Context, dir, newTag, oldTag string) (*GitData, 
 	}
 
 	if oldTag != "" {
-		if diffOut, err := RunGit(ctx, dir, "diff", "--stat", oldTag, "HEAD"); err == nil {
+		if diffOut, err := RunGit(ctx, dir, "diff", "--stat", oldTag, end); err == nil {
 			data.Diff = truncate(diffOut, maxDiffSize)
 		}
 	}

@@ -118,14 +118,159 @@ func TestPreviousTag(t *testing.T) {
 	})
 }
 
+// TestPreviousTagSameDate guards against the case where two release tags share
+// the same commit date (common for rapid successive releases). The parent must
+// be resolved from commit ancestry, not from date ordering, so equal dates do
+// not cause the parent to be lost (which would make the diff range cover the
+// whole history).
+func TestPreviousTagSameDate(t *testing.T) {
+	dir := t.TempDir()
+	run := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+		return string(out)
+	}
+	commit := func(msg, file, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, file), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		run("add", "-A")
+		run("commit", "-q", "-m", msg)
+	}
+	run("init", "-q", "-b", "main")
+	run("config", "user.email", "t@e.c")
+	run("config", "user.name", "T")
+	// All commits share a single date so date-based ordering is useless.
+	const sameDate = "2025-06-01T12:00:00+00:00"
+	setDate := func() {
+		os.Setenv("GIT_AUTHOR_DATE", sameDate)
+		os.Setenv("GIT_COMMITTER_DATE", sameDate)
+	}
+	unsetDate := func() {
+		os.Unsetenv("GIT_AUTHOR_DATE")
+		os.Unsetenv("GIT_COMMITTER_DATE")
+	}
+
+	setDate()
+	commit("initial", "a.txt", "a\n")
+	unsetDate()
+	run("tag", "v1.0.0")
+	setDate()
+	commit("feat one", "b.txt", "b\n")
+	unsetDate()
+	run("tag", "v1.1.0")
+	setDate()
+	commit("feat two", "c.txt", "c\n")
+	unsetDate()
+	run("tag", "v1.2.0")
+
+	got, err := PreviousTag(context.Background(), dir, "v1.2.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "v1.1.0" {
+		t.Errorf("PreviousTag(v1.2.0) = %q, want v1.1.0 (same-date parent must come from ancestry)", got)
+	}
+	got, err = PreviousTag(context.Background(), dir, "v1.1.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "v1.0.0" {
+		t.Errorf("PreviousTag(v1.1.0) = %q, want v1.0.0 (same-date parent must come from ancestry)", got)
+	}
+}
+
+func TestTagCandidates(t *testing.T) {
+	cases := []struct {
+		in   string
+		want []string
+	}{
+		{"1.2.0", []string{"1.2.0", "v1.2.0", "V1.2.0"}},
+		{"v1.2.0", []string{"v1.2.0"}},
+		{"V1.2.0", []string{"V1.2.0"}},
+		{"", nil},
+		{"  1.2.0  ", []string{"1.2.0", "v1.2.0", "V1.2.0"}},
+	}
+	for _, c := range cases {
+		got := tagCandidates(c.in)
+		if len(got) != len(c.want) {
+			t.Errorf("tagCandidates(%q) = %v (len %d), want %v (len %d)", c.in, got, len(got), c.want, len(c.want))
+			continue
+		}
+		for i := range got {
+			if got[i] != c.want[i] {
+				t.Errorf("tagCandidates(%q)[%d] = %q, want %q", c.in, i, got[i], c.want[i])
+				break
+			}
+		}
+	}
+}
+
+// TestTagTarget covers resolving a version to its tag commit, including the
+// case where the tag is stored with a "v" prefix but the version is given
+// without it (the common regeneration scenario).
+func TestTagTarget(t *testing.T) {
+	dir := testRepo(t)
+	ctx := context.Background()
+
+	// Version without a v prefix must resolve to the v-prefixed tag.
+	if got := tagTarget(ctx, dir, "1.1.0"); got == "" {
+		t.Error("tagTarget(1.1.0) = empty, want the v1.1.0 commit")
+	}
+	// Exact tag name also resolves.
+	if got := tagTarget(ctx, dir, "v1.1.0"); got == "" {
+		t.Error("tagTarget(v1.1.0) = empty, want the v1.1.0 commit")
+	}
+	// A version with no matching tag resolves to empty.
+	if got := tagTarget(ctx, dir, "9.9.9"); got != "" {
+		t.Errorf("tagTarget(9.9.9) = %q, want empty (no such tag)", got)
+	}
+}
+
 func TestCollectGitData(t *testing.T) {
 	dir := testRepo(t)
+	// v1.1.0 already exists as a tag, so regenerating it ends the range at
+	// the tag (v1.0.0..v1.1.0): the two commits up to the release, not the
+	// two commits that landed after it.
 	data, err := CollectGitData(context.Background(), dir, "v1.1.0", "v1.0.0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The range is v1.0.0..HEAD, which includes the two commits up to v1.1.0
-	// plus the two commits after it.
+	if data.Count != 2 {
+		t.Errorf("Count = %d, want 2", data.Count)
+	}
+	for _, want := range []string{"add feature", "fix bug"} {
+		if !strings.Contains(data.Log, want) {
+			t.Errorf("Log missing expected commit %q:\n%s", want, data.Log)
+		}
+	}
+	for _, notWant := range []string{"add another feature", "update docs"} {
+		if strings.Contains(data.Log, notWant) {
+			t.Errorf("Log includes post-release commit %q that belongs to a later version:\n%s", notWant, data.Log)
+		}
+	}
+	if !strings.Contains(data.Diff, "feat.go") {
+		t.Errorf("Diff missing expected file: %q", data.Diff)
+	}
+	if data.Subject != "fix bug" {
+		t.Errorf("Subject = %q, want the tag commit subject %q", data.Subject, "fix bug")
+	}
+}
+
+func TestCollectGitDataNewTag(t *testing.T) {
+	dir := testRepo(t)
+	// A tag that does not exist yet: the range ends at HEAD, so it covers the
+	// two commits up to v1.1.0 plus the two commits after it.
+	data, err := CollectGitData(context.Background(), dir, "v1.1.1", "v1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if data.Count != 4 {
 		t.Errorf("Count = %d, want 4", data.Count)
 	}
@@ -134,8 +279,8 @@ func TestCollectGitData(t *testing.T) {
 			t.Errorf("Log missing expected commit %q:\n%s", want, data.Log)
 		}
 	}
-	if !strings.Contains(data.Diff, "feat.go") {
-		t.Errorf("Diff missing expected file: %q", data.Diff)
+	if data.Subject != "update docs" {
+		t.Errorf("Subject = %q, want HEAD commit subject %q", data.Subject, "update docs")
 	}
 }
 
